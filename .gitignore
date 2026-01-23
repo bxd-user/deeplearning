@@ -1,0 +1,17 @@
+# ================= Dataset =================
+data/
+data/**
+
+# Compressed files
+*.zip
+*.tar
+*.tar.gz
+
+# PyTorch
+*.pth
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
