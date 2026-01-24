@@ -8,7 +8,7 @@ from torchvision import datasets, transforms
 
 batch_size = 192
 num_epochs = 10
-learning_rate = 0.1
+learning_rate = 0.15
 num_classes = 200
 
 torch.backends.cudnn.benchmark = True
@@ -225,7 +225,7 @@ class ResNet50(nn.Module):
         return x
 
 
-net = ResNet18(num_classes).to(device)
+net = ResNet34(num_classes).to(device)
 
 criterion = nn.CrossEntropyLoss()
 
