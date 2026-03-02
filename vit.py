@@ -1,152 +1,96 @@
 import os
-import math
 import zipfile
-import urllib.request
-from PIL import Image
-
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 
-# =====================================================
-# 配置
-# =====================================================
-DATA_DIR = "data"
-DATASET_DIR = os.path.join(DATA_DIR, "tiny-imagenet-200")
-ZIP_PATH = os.path.join(DATA_DIR, "tiny-imagenet-200.zip")
-URL = "http://cs231n.stanford.edu/tiny-imagenet-200.zip"
+def prepare_tiny_imagenet(zip_path, root="data"):
+    extract_path = os.path.join(root, "tiny-imagenet-200")
+    if not os.path.exists(extract_path):
+        print("[INFO] Extracting Tiny-ImageNet...")
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(root)
+    return extract_path
 
-IMG_SIZE = 64
-PATCH_SIZE = 8
-NUM_CLASSES = 200
-
-D_MODEL = 384
-N_HEADS = 6
-N_LAYERS = 6
-MLP_RATIO = 4
-
-BATCH_SIZE = 64
-EPOCHS = 10
-LR = 3e-4
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# =====================================================
-# 自动下载 & 解压
-# =====================================================
-def prepare_dataset():
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    if not os.path.exists(ZIP_PATH):
-        print("[INFO] Downloading Tiny-ImageNet...")
-        urllib.request.urlretrieve(URL, ZIP_PATH)
-        print("[INFO] Download complete")
-
-    if not os.path.exists(DATASET_DIR):
-        print("[INFO] Extracting dataset...")
-        with zipfile.ZipFile(ZIP_PATH, "r") as z:
-            z.extractall(DATA_DIR)
-        print("[INFO] Extraction complete")
-
-    print("[INFO] Dataset ready")
-
-# =====================================================
-# Dataset
-# =====================================================
-class TinyImageNet(Dataset):
-    def __init__(self, root, split="train", transform=None):
-        self.samples = []
-        self.transform = transform
-
-        if split == "train":
-            classes = sorted(os.listdir(root))
-            self.class_to_idx = {c: i for i, c in enumerate(classes)}
-
-            for cls in classes:
-                img_dir = os.path.join(root, cls, "images")
-                for img in os.listdir(img_dir):
-                    self.samples.append(
-                        (os.path.join(img_dir, img), self.class_to_idx[cls])
-                    )
-
-        elif split == "val":
-            ann_file = os.path.join(root, "val_annotations.txt")
-            img_dir = os.path.join(root, "images")
-
-            classes = sorted(
-                set(line.split()[1] for line in open(ann_file))
-            )
-            self.class_to_idx = {c: i for i, c in enumerate(classes)}
-
-            with open(ann_file) as f:
-                for line in f:
-                    img, cls = line.split()[:2]
-                    self.samples.append(
-                        (os.path.join(img_dir, img), self.class_to_idx[cls])
-                    )
-
-        print(f"[INFO] Loaded {len(self.samples)} {split} samples")
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        path, label = self.samples[idx]
-        img = Image.open(path).convert("RGB")
-        if self.transform:
-            img = self.transform(img)
-        return img, label
-
-# =====================================================
-# ViT 模型
-# =====================================================
-class PatchEmbedding(nn.Module):
-    def __init__(self):
+class PatchEmbed(nn.Module):
+    def __init__(self, img_size=64, patch_size=8, in_chans=3, embed_dim=384):
         super().__init__()
         self.proj = nn.Conv2d(
-            3, D_MODEL, kernel_size=PATCH_SIZE, stride=PATCH_SIZE
+            in_chans, embed_dim,
+            kernel_size=patch_size,
+            stride=patch_size
         )
 
     def forward(self, x):
-        x = self.proj(x)
-        x = x.flatten(2).transpose(1, 2)
+        # x: (B, 3, 64, 64)
+        x = self.proj(x)          # (B, C, H', W')
+        x = x.flatten(2)          # (B, C, N)
+        x = x.transpose(1, 2)     # (B, N, C)
         return x
+
+class Attention(nn.Module):
+    def __init__(self, dim, num_heads):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+
+        self.qkv = nn.Linear(dim, dim * 3)
+        self.proj = nn.Linear(dim, dim)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).chunk(3, dim=-1)
+
+        q, k, v = [
+            t.view(B, N, self.num_heads, self.head_dim)
+             .transpose(1, 2)
+            for t in qkv
+        ]
+
+        out = F.scaled_dot_product_attention(q, k, v)
+        out = out.transpose(1, 2).contiguous().view(B, N, C)
+        return self.proj(out)
 
 class EncoderBlock(nn.Module):
-    def __init__(self):
+    def __init__(self, dim, num_heads, mlp_ratio=4.0):
         super().__init__()
-        self.attn = nn.MultiheadAttention(
-            D_MODEL, N_HEADS, batch_first=True
-        )
-        self.ffn = nn.Sequential(
-            nn.Linear(D_MODEL, D_MODEL * MLP_RATIO),
+        self.norm1 = nn.LayerNorm(dim)
+        self.attn = Attention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim)
+
+        hidden_dim = int(dim * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(D_MODEL * MLP_RATIO, D_MODEL),
+            nn.Linear(hidden_dim, dim)
         )
-        self.norm1 = nn.LayerNorm(D_MODEL)
-        self.norm2 = nn.LayerNorm(D_MODEL)
 
     def forward(self, x):
-        x = self.norm1(x + self.attn(x, x, x)[0])
-        x = self.norm2(x + self.ffn(x))
+        x = x + self.attn(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
         return x
 
-class ViT(nn.Module):
-    def __init__(self):
+class VisionTransformer(nn.Module):
+    def __init__(self, img_size=64, patch_size=8,
+                 embed_dim=384, depth=6, num_heads=6, num_classes=200):
         super().__init__()
-        self.patch_embed = PatchEmbedding()
-        num_patches = (IMG_SIZE // PATCH_SIZE) ** 2
 
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, D_MODEL))
+        self.patch_embed = PatchEmbed(img_size, patch_size, 3, embed_dim)
+        num_patches = (img_size // patch_size) ** 2
+
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(
-            torch.zeros(1, num_patches + 1, D_MODEL)
+            torch.zeros(1, num_patches + 1, embed_dim)
         )
 
         self.blocks = nn.Sequential(
-            *[EncoderBlock() for _ in range(N_LAYERS)]
+            *[EncoderBlock(embed_dim, num_heads) for _ in range(depth)]
         )
-        self.head = nn.Linear(D_MODEL, NUM_CLASSES)
+
+        self.norm = nn.LayerNorm(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes)
 
     def forward(self, x):
         B = x.size(0)
@@ -157,72 +101,53 @@ class ViT(nn.Module):
         x = x + self.pos_embed
 
         x = self.blocks(x)
+        x = self.norm(x)
+
         return self.head(x[:, 0])
 
-# =====================================================
-# Train / Eval
-# =====================================================
-def evaluate(model, loader):
-    model.eval()
-    loss_fn = nn.CrossEntropyLoss()
-    total, correct, loss_sum = 0, 0, 0
+def main():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    with torch.no_grad():
-        for imgs, labels in loader:
-            imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
-            logits = model(imgs)
-            loss = loss_fn(logits, labels)
+    data_root = prepare_tiny_imagenet(
+        "data/tiny-imagenet-200.zip"
+    )
 
-            loss_sum += loss.item()
-            correct += (logits.argmax(1) == labels).sum().item()
-            total += labels.size(0)
-
-    return loss_sum / len(loader), correct / total
-
-def train():
-    prepare_dataset()
-
-    tf = transforms.Compose([
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.ToTensor(),
+    transform = transforms.Compose([
+        transforms.Resize(64),
+        transforms.ToTensor()
     ])
 
-    train_set = TinyImageNet(
-        os.path.join(DATASET_DIR, "train"),
-        split="train",
-        transform=tf,
-    )
-    val_set = TinyImageNet(
-        os.path.join(DATASET_DIR, "val"),
-        split="val",
-        transform=tf,
+    train_set = datasets.ImageFolder(
+        os.path.join(data_root, "train"),
+        transform=transform
     )
 
     train_loader = DataLoader(
-        train_set, BATCH_SIZE, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_set, BATCH_SIZE, shuffle=False, num_workers=0
+        train_set, batch_size=128,
+        shuffle=True, num_workers=4
     )
 
-    model = ViT().to(DEVICE)
-    opt = torch.optim.AdamW(model.parameters(), lr=LR)
-    loss_fn = nn.CrossEntropyLoss()
+    model = VisionTransformer().to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(EPOCHS):
-        model.train()
-        for imgs, labels in train_loader:
-            imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
-            opt.zero_grad()
-            loss = loss_fn(model(imgs), labels)
+    model.train()
+    for epoch in range(20):
+        total = correct = 0
+        for x, y in train_loader:
+            x, y = x.to(device), y.to(device)
+
+            optimizer.zero_grad()
+            out = model(x)
+            loss = criterion(out, y)
             loss.backward()
-            opt.step()
+            optimizer.step()
 
-        val_loss, val_acc = evaluate(model, val_loader)
-        print(
-            f"Epoch {epoch+1}/{EPOCHS} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
-        )
+            pred = out.argmax(dim=1)
+            correct += (pred == y).sum().item()
+            total += y.size(0)
+
+        print(f"Epoch {epoch}: acc={correct/total:.3f}")
 
 if __name__ == "__main__":
-    train()
+    main()
