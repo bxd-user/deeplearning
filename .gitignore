@@ -7,11 +7,33 @@ data/**
 *.tar
 *.tar.gz
 
-# PyTorch
+# PyTorch / 训练产物
 *.pth
+*.pt
+*.ckpt
 __pycache__/
 *.pyc
+*.pyo
+
+# 输出与日志
+logs/
+output/
+out/
+*.log
+wandb/
+
+# 环境与本地
+.env
+.venv/
+venv/
+nanoGPT/
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
