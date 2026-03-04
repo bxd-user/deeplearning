@@ -1,0 +1,104 @@
+Metadata-Version: 2.4
+Name: aics
+Version: 0.1.0
+Summary: AI 代码分析命令行工具（explain / complexity / review / testcase / classify / solution）
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: requests
+
+# aics - AI 代码分析命令行工具
+
+使用本地 Ollama 对源代码进行解释、复杂度分析、审查、测试用例生成、分类与题解说明。
+
+## 依赖
+
+- 已安装并运行 [Ollama](https://ollama.com)，且已拉取模型：`ollama pull qwen2:7b`
+- Python 3.10+
+- `pip install requests`（或安装本工具时自动安装）
+
+## 安装（一次安装，任意目录可用）
+
+在 `ai_tool` 目录下执行一次即可，之后在**任意目录**都能直接使用 `aics`：
+
+```bash
+cd e:\vscode\model\ai_tool
+pip install -e .
+```
+
+安装完成后，在任意路径下都可以执行，例如：
+
+```bash
+cd D:\projects
+aics explain main.cpp
+aics complexity main.cpp
+```
+
+**若提示找不到 `aics` 命令**：说明 Python 的「脚本目录」不在系统 PATH 里。
+
+- **Windows**：把脚本目录加入 PATH。常见位置示例：
+  - 官方 Python：`C:\Users\你的用户名\AppData\Local\Programs\Python\Python3xx\Scripts`
+  - Miniconda/Anaconda：`C:\Users\你的用户名\miniconda3\Scripts` 或 `...\anaconda3\Scripts`
+- 或改用（无需改 PATH，在任意目录可用）：
+  ```bash
+  python -m aics explain main.cpp
+  python -m aics complexity main.cpp
+  ```
+
+## 用法
+
+```bash
+aics <子命令> <源文件> [-o 输出文件] [--model 模型名]
+```
+
+| 子命令 | 说明 |
+|--------|------|
+| `explain` | 为代码添加解释性注释（可写回原文件并生成 .bak 备份） |
+| `complexity` | 分析时间/空间/圈复杂度 |
+| `review` | 代码审查与改进建议 |
+| `testcase` | 生成测试用例（输入与期望输出） |
+| `classify` | 代码分类（算法类型、用途等） |
+| `solution` | 题解与解法思路说明 |
+
+## 示例
+
+```bash
+# 为 main.cpp 添加注释（覆盖原文件并生成 main.cpp.bak）
+aics explain main.cpp
+
+# 解释后输出到新文件
+aics explain main.cpp -o main_commented.cpp
+
+# 覆盖原文件且不生成备份
+aics explain main.cpp --no-backup
+
+# 分析复杂度，结果打印到终端
+aics complexity main.cpp
+
+# 代码审查结果保存到 review.txt
+aics review main.cpp -o review.txt
+
+# 生成测试用例
+aics testcase main.cpp
+
+# 代码分类
+aics classify main.cpp
+
+# 题解与解法说明
+aics solution main.cpp -o solution.md
+
+# 指定其他 Ollama 模型
+aics solution main.cpp --model qwen2:14b
+```
+
+## 通用参数
+
+| 参数 | 说明 |
+|------|------|
+| `file` | 源代码文件路径 |
+| `-o, --output` | 输出文件（不指定则除 explain 外均打印到终端） |
+| `--model` | Ollama 模型名，默认 `qwen2:7b` |
+| `--no-backup` | 仅 explain：覆盖原文件时不生成 .bak 备份 |
+
+## 说明
+
+- 默认连接 `http://localhost:11434`，若 Ollama 不在本机或端口不同，可修改 `aics.py` 内 `OLLAMA_HOST`。

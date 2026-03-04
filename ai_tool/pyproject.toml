@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aics"
+version = "0.1.0"
+description = "AI 代码分析命令行工具（explain / complexity / review / testcase / classify / solution）"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["requests"]
+
+[project.scripts]
+aics = "aics:main"
+
+[tool.setuptools]
+py-modules = ["aics"]

@@ -1,0 +1,9 @@
+README.md
+aics.py
+pyproject.toml
+aics.egg-info/PKG-INFO
+aics.egg-info/SOURCES.txt
+aics.egg-info/dependency_links.txt
+aics.egg-info/entry_points.txt
+aics.egg-info/requires.txt
+aics.egg-info/top_level.txt
