@@ -1,0 +1,7 @@
+# CrewAI + Ollama (LiteLLM)
+crewai[litellm]>=0.80.0
+crewai-tools>=0.14.0
+
+# token counting: tiktoken (fallback) + Qwen2 tokenizer (precise for qwen2:7b)
+tiktoken>=0.7.0
+transformers>=4.37.0

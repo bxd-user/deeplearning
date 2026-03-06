@@ -1,0 +1,7 @@
+# IDE
+.vscode/
+
+# Virtual environments (any subproject)
+.venv/
+venv/
+env/
