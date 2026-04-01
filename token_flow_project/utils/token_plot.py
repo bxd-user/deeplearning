@@ -27,10 +27,16 @@ def plot_token_usage(steps: List[Dict[str, Any]], save_path: Path = None) -> Pat
     save_path = save_path or GRAPHS_DIR / "token_usage.png"
     GRAPHS_DIR.mkdir(parents=True, exist_ok=True)
 
-    labels = [f"Step{i+1}\n{s.get('agent','')}" for i, s in enumerate(steps)]
-    totals = [s.get("total", 0) for s in steps]
-    prompt_vals = [s.get("prompt", 0) for s in steps]
-    completion_vals = [s.get("completion", 0) for s in steps]
+    def _label(s: dict, i: int) -> str:
+        t, r = s.get("task_index"), s.get("round_index")
+        agent = s.get("agent") or s.get("agent_name", "")
+        if t is not None and r is not None:
+            return f"T{t}R{r}\nS{i+1}\n{agent}"
+        return f"Step{i+1}\n{agent}"
+    labels = [_label(s, i) for i, s in enumerate(steps)]
+    totals = [s.get("total_tokens", s.get("total", 0)) for s in steps]
+    prompt_vals = [s.get("prompt_tokens", s.get("prompt", 0)) for s in steps]
+    completion_vals = [s.get("completion_tokens", s.get("completion", 0)) for s in steps]
 
     x = range(len(labels))
     width = 0.6
